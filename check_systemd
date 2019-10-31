@@ -3,6 +3,7 @@
 import os
 import re
 import collections
+import textwrap
 
 # systemd service files end with '.service' and are located in the folder
 # /etc/systemd/system
@@ -41,34 +42,128 @@ for service in get_services():
                     file_name = file_name[1:]
                 # in case there are other wildcards we don't know about
                 if os.path.exists(file_name):
-                    services[f].append(file_name)
+                    services[service].append(file_name)
                 else:
                     print(f"file: {file_name} does not exist")
 
-problematic_scripts = []
-
-mask_read = 0x4
-mask_write = 0x2
-mask_execute = 0x1
 
 def get_perm_octal_str(file):
     return oct(os.stat(file).st_mode)[-3:]
 
 
-for service, scripts in services.items():
-    for script in scripts:
-        st = os.stat(script)
-        mode = oct(st.st_mode)[-3:]
-        user_perm = int(mode[0])
-        group_perm = int(mode[1])
-        all_perm = int(mode[2])
-        # it is not the root user and has write permission
-        if st.st_uid != 0 and user_perm & mask_write == mask_write:
-            problematic_scripts.append(script)
-        elif st.st_uid == 0:
-            if all_perm & mask_write == mask_write:
-                problematic_scripts.append(script)
+def get_user(file):
+    return os.stat(file).st_uid
 
-print("problematic scripts: ")
-for script in problematic_scripts:
-    print(script)
+
+def get_group(file):
+    return os.stat(file).st_gid
+
+
+mask_read = 0x4
+mask_write = 0x2
+mask_execute = 0x1
+
+
+def read_perm(mode_str):
+    return int(mode_str) & mask_read == mask_read
+
+
+def write_perm(mode_str):
+    return int(mode_str) & mask_write == mask_write
+
+
+def execute_perm(mode_str):
+    return int(mode_str) & mask_execute == mask_execute
+
+
+problematic_scripts = collections.defaultdict(list)
+
+# (service-file, script_file) --> string
+help_message = collections.defaultdict(lambda: "")
+
+
+def is_user_defined(service):
+    with open(service, 'r') as service_f:
+        service_text = service_f.read()
+        return len(user_regex.findall(service_text)) > 0
+
+
+for service, scripts in services.items():
+    # if the service is run with user privileges we can disregard it
+    # the service won't run the script with root privileges
+    if is_user_defined(service):
+        continue
+
+    for script in scripts:
+        # octal string with permissions
+        mode = get_perm_octal_str(script)
+
+        user_perm = mode[0]
+        group_perm = mode[1]
+        other_perm = mode[2]
+
+        # Problem: anyone can write to the file
+        if write_perm(other_perm):
+            problematic_scripts[service].append(script)  # add to problematic
+            help_message[(service, script)] += "Anyone can write to the script and it is run with root permissions!\n"
+
+        # Problem: user (non-root, uid != 0) has write permissions
+        user = get_user(script)
+        user_name = str(user)
+
+        try:
+            read_name = os.popen(f"getent passwd {user}")
+            user_name = read_name.read().split(":")[0]
+        except:
+            print(f"user with id: {user} does not exist!")
+        finally:
+            read_name.close()
+
+        if user != 0 and write_perm(user_perm):
+            problematic_scripts[service].append(script)
+            help_message[(service, script)] += f"user: {user_name} has write permission"
+
+        # Problem: group (non-root, guid != 0) has write permissions
+        group = get_group(script)
+        group_name = str(group)
+        try:
+            read_group = os.popen(f"getent group {group}")
+            group_name = read_group.read().split(":")[0]
+        except:
+            print(f"group with id: {group} does not exist!")
+        finally:
+            read_group.close()
+
+        if group != 0 and write_perm(group_perm):
+            problematic_scripts[service].append(script)
+            help_message[(service, script)] += f"group: {group_name} has write permission"
+
+indent_l1 = ' ' * 0
+indent_l2 = ' ' * 2
+indent_l3 = ' ' * 9
+print("Report: ")
+if len(problematic_scripts) > 0:
+    if len(problematic_scripts) == 1:
+        print(f"There is 1 file called by systemd with possibly incorrect permissions.")
+    else:
+        print(f"There are {len(problematic_scripts)} files called by systemd with possibly incorrect permissions.")
+    print("Please check if the systemd service runs them as root and\nwether the file has incorrect permissions (it is writeable by a non root user).")
+
+    print("If the program does not need root permission:")
+    print("You can use the folder ~/.config/systemd/user/ for user services")
+    print("or specify a user in the service file ('User=' entry)")
+
+    print("Otherwise change the permissions of the file to be non-writeable and change the owner to root.")
+    service_index = 1
+    print("")
+    for service, scripts in problematic_scripts.items():
+        script_index = 1
+        for script in scripts:
+            # print(f"{index}): ")
+            print(textwrap.indent(f"{service_index}) service: {service}", indent_l1))
+            print(textwrap.indent(f"{service_index}.{script_index}) file: {script}", indent_l2))
+            print(textwrap.indent(help_message[(service, script)], indent_l3))
+            service_index += 1
+            print("")
+else:
+    print("No vulnerabilities found.")
