@@ -5,8 +5,10 @@ import re
 import collections
 import textwrap
 
+
 # systemd service files end with '.service' and are located in the folder
 # /etc/systemd/system
+# there are also user services in '~/.config/systemd/user' but these are not run with root privileges
 def get_services():
     system_path = "/etc/systemd/system"
     service_files = []
@@ -31,20 +33,23 @@ user_regex = re.compile("(?<=User=)([^ \n]*)")
 # collect for every service scripts run in ExecStart=, ExecStop=, ... description
 services = collections.defaultdict(list)
 for service in get_services():
-    with open(service, 'r') as f:
-        file_content = f.read()
-        for reg in exec_re:
-            for m in re.finditer(reg, file_content):
-                file_name = m.group()
-                # systemd paths can have several prefixes
-                # '-' means if the file is not found, no error warning or message is logged
-                if file_name.startswith("-"):
-                    file_name = file_name[1:]
-                # in case there are other wildcards we don't know about
-                if os.path.exists(file_name):
-                    services[service].append(file_name)
-                else:
-                    print(f"file: {file_name} does not exist")
+    try:
+        with open(service, 'r') as f:
+            file_content = f.read()
+            for reg in exec_re:
+                for m in re.finditer(reg, file_content):
+                    file_name = m.group()
+                    # systemd paths can have several prefixes
+                    # '-' means if the file is not found, no error warning or message is logged
+                    if file_name.startswith("-"):
+                        file_name = file_name[1:]
+                    # in case there are other wildcards we don't know about, exclude the others
+                    if os.path.exists(file_name):
+                        services[service].append(file_name)
+                    else:
+                        print(f"file: {file_name} called from service {service} does not exist")
+    except IOError:
+        print(f"service {service} does not exist")
 
 
 def get_perm_octal_str(file):
@@ -59,6 +64,7 @@ def get_group(file):
     return os.stat(file).st_gid
 
 
+# RWX - each one bit
 mask_read = 0x4
 mask_write = 0x2
 mask_execute = 0x1
@@ -82,11 +88,13 @@ problematic_scripts = collections.defaultdict(list)
 help_message = collections.defaultdict(lambda: "")
 
 
-def is_user_defined(service):
-    with open(service, 'r') as service_f:
-        service_text = service_f.read()
-        return len(user_regex.findall(service_text)) > 0
-
+def is_user_defined(service_path):
+    try:
+        with open(service_path, 'r') as service_f:
+            service_text = service_f.read()
+            return len(user_regex.findall(service_text)) > 0
+    except IOError:
+        print(f"service {service_path} does not exist!")
 
 for service, scripts in services.items():
     # if the service is run with user privileges we can disregard it
@@ -147,7 +155,8 @@ if len(problematic_scripts) > 0:
         print(f"There is 1 file called by systemd with possibly incorrect permissions.")
     else:
         print(f"There are {len(problematic_scripts)} files called by systemd with possibly incorrect permissions.")
-    print("Please check if the systemd service runs them as root and\nwether the file has incorrect permissions (it is writeable by a non root user).")
+    print("Please check if the systemd service runs them as root and\nwether the file has incorrect permissions (it "
+          "is writeable by a non root user).")
 
     print("If the program does not need root permission:")
     print("You can use the folder ~/.config/systemd/user/ for user services")
