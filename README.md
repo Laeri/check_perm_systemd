@@ -1,5 +1,5 @@
 # check_perm_systemd - Checking permissions on files called by systemd root services
-Find scripts / binaries called from systemd services with root privilege that have bad write permissions.
+Find scripts / binaries called from systemd services with root privilege that have bad write permissions (or are not owned by root).
 
 
 The program goes through every service file in '/ect/systemd/system' checks which scripts are called in
@@ -7,7 +7,7 @@ The program goes through every service file in '/ect/systemd/system' checks whic
 writeable files by non-root users.
 
 This was mainly done to see how some basic file utilities work in python and also to find some files
-where I forgot to change the permissions. Basically try to put user services into '~/.config/systemd/user' or change file permissions accordingly.
+where I forgot to change the permissions. Basically try to put user services into '~/.config/systemd/user' or change file permissions and ownership accordingly.
 
 
 ## Systemd

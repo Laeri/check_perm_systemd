@@ -127,9 +127,10 @@ for service, scripts in services.items():
         finally:
             read_name.close()
 
-        if user != 0 and write_perm(user_perm):
-            problematic_scripts[service].append(script)
-            help_message[(service, script)] += f"user: {user_name} has write permission"
+        if user != 0:
+            if not (service, script) in problematic_scripts[service]:
+                problematic_scripts[service].append(script)
+            help_message[(service, script)] += f"user: has ownership\n"
 
         # Problem: group (non-root, guid != 0) has write permissions
         group = get_group(script)
@@ -142,9 +143,10 @@ for service, scripts in services.items():
         finally:
             read_group.close()
 
-        if group != 0 and write_perm(group_perm):
-            problematic_scripts[service].append(script)
-            help_message[(service, script)] += f"group: {group_name} has write permission"
+        if group != 0:
+            if not (service, script) in problematic_scripts[service]:
+                problematic_scripts[service].append(script)
+            help_message[(service, script)] += f"group: {group_name} has ownership"
 
 indent_l1 = ' ' * 0
 indent_l2 = ' ' * 2
@@ -156,7 +158,7 @@ if len(problematic_scripts) > 0:
     else:
         print(f"There are {len(problematic_scripts)} files called by systemd with possibly incorrect permissions.")
     print("Please check if the systemd service runs them as root and\nwether the file has incorrect permissions (it "
-          "is writeable by a non root user).")
+          "is writeable by a non root user, ownership is not root user).")
 
     print("If the program does not need root permission:")
     print("You can use the folder ~/.config/systemd/user/ for user services")
