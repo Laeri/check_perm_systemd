@@ -128,7 +128,7 @@ for service, scripts in services.items():
             read_name.close()
 
         if user != 0:
-            if not (service, script) in problematic_scripts[service]:
+            if not script in problematic_scripts[service]:
                 problematic_scripts[service].append(script)
             help_message[(service, script)] += f"user: has ownership\n"
 
@@ -144,7 +144,7 @@ for service, scripts in services.items():
             read_group.close()
 
         if group != 0:
-            if not (service, script) in problematic_scripts[service]:
+            if not script in problematic_scripts[service]:
                 problematic_scripts[service].append(script)
             help_message[(service, script)] += f"group: {group_name} has ownership"
 
